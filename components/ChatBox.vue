@@ -178,7 +178,6 @@ button {
   cursor: pointer;
 }
 
-
 input {
   flex-grow: 1;
   box-sizing: border-box;
@@ -207,5 +206,62 @@ input:focus {
   color: #666;
   font-style: italic;
   margin-right: 8px;
+}
+
+/* 移动端适配 - 仅调整布局位置 */
+@media (max-width: 480px) {
+  .upper {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  input {
+    width: 100%;
+    margin-bottom: 4px;
+    font-size: 16px; /* 防止iOS自动缩放 */
+  }
+  
+  /* 按钮容器 */
+  .upper {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .upper > button {
+    display: inline-block;
+    width: calc(33.33% - 3px);
+    margin-right: 4px;
+    margin-bottom: 0;
+  }
+  
+  .upper > button:last-child {
+    margin-right: 0;
+  }
+  
+  /* 重新排列：输入框在上，按钮在下 */
+  .upper > input {
+    order: 1;
+    width: 100%;
+    margin-bottom: 4px;
+    margin-right: 0;
+  }
+  
+  .upper > button:nth-child(2) { order: 2; }
+  .upper > button:nth-child(3) { order: 3; }
+  .upper > button:nth-child(4) { order: 4; }
+  
+  /* 按钮组水平排列 */
+  .upper {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  
+  .upper > input {
+    flex-basis: 100%;
+  }
+  
+  .upper > button {
+    flex-basis: calc(25% - 3px); 
+  }
 }
 </style>
