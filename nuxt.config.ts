@@ -17,7 +17,7 @@ export default defineNuxtConfig({
   compatibilityDate: "2024-04-03",
   app: {
     head: {
-      title: "寻根之旅",
+      title: "拾遗满韵",
       link: preloadLinks,
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' }
