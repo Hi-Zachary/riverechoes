@@ -99,12 +99,18 @@ const askQuestion = async () => {
     
     while (!chunk.done) {
       chunk.value.trim().split('\n').forEach((text: string) => {
-        if (text) {
+        if (text && text.startsWith('data: ')) {
           try {
-            const data = JSON.parse(text.slice(6));
-            answerDelta.value += data.answer;
+            const jsonStr = text.slice(6);
+            if (jsonStr === '[DONE]') {
+              return; // 忽略结束标记
+            }
+            const data = JSON.parse(jsonStr);
+            if (data.answer && data.answer !== null && data.answer !== undefined) {
+              answerDelta.value += data.answer;
+            }
           } catch (e) {
-            
+            console.log('解析响应数据出错:', text, e);
           }
         }
       })

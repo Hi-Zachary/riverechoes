@@ -1,6 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
-
 function needsPOIRecommendation(question: string): boolean {
   const actionKeywords = [
     '推荐', '附近', '哪里有', '参观', '游览', '去哪', '博物馆', '景点',
@@ -92,7 +89,7 @@ function extractLocation(question: string): { city: string, province: string } {
       if (aliases.some(alias => question.includes(alias))) {
         detectedProvince = shortProvince;
         if (!detectedCity) {
-          detectedCity = provinceCapitals[shortProvince] || '北京';
+          detectedCity = (provinceCapitals as any)[shortProvince] || '北京';
         }
         break;
       }
@@ -145,32 +142,6 @@ function generateNonce(length = 8) {
   return result;
 }
 
-function buildQueryString(params) {
-  return Object.keys(params)
-    .sort()
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
-    .join('&');
-}
-
-function generateSignature(appId, appKey, method, uri, queryParams) {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = generateNonce(8);
-  const canonicalQueryString = buildQueryString(queryParams);
-  const signedHeadersString = `x-ai-gateway-app-id:${appId}\nx-ai-gateway-timestamp:${timestamp}\nx-ai-gateway-nonce:${nonce}`;
-  const signingString = `${method.toUpperCase()}\n${uri}\n${canonicalQueryString}\n${appId}\n${timestamp}\n${signedHeadersString}`;
-  
-  const signature = crypto.createHmac('sha256', appKey)
-    .update(Buffer.from(signingString, 'utf-8'))
-    .digest('base64');
-  
-  return {
-    timestamp,
-    nonce,
-    signature,
-    signedHeaders: "x-ai-gateway-app-id;x-ai-gateway-timestamp;x-ai-gateway-nonce"
-  };
-}
-
 function escapeSSEText(text: string): string {
   return text
     .replace(/\n/g, '\\n')
@@ -178,106 +149,107 @@ function escapeSSEText(text: string): string {
     .replace(/\r/g, '\\r');
 }
 
-// 添加坐标支持
-async function searchVivoPOI(keywords: string, city: string, province?: string, coords?: { latitude: number, longitude: number }) {
+// 百度地图POI搜索函数
+async function searchBaiduPOI(keywords: string, city: string, province?: string, coords?: { latitude: number, longitude: number }) {
   try {
-    const appId = process.env.VIVO_APP_ID;
-    const appKey = process.env.VIVO_APP_KEY;
-    const uri = '/search/geo';
-    const method = 'GET';
+    const baiduAK = 'm62j1oeJ9fqqk8A3eAwapduSlrG17T2q';
     
-    // 基本参数
-    const queryParams: any = {
-      keywords,
-      page_num: '1',
-      page_size: '5'
-    };
+    let url = '';
+    const baseUrl = 'https://api.map.baidu.com/place/v2/search';
     
-    // 如果有坐标，优先使用坐标进行周边搜索
+    // 如果有坐标，使用圆形区域检索
     if (coords) {
-      console.log("使用坐标搜索POI:", coords);
-      queryParams.location = `${coords.longitude},${coords.latitude}`;
-      queryParams.radius = '20000';
+      console.log("使用百度地图坐标搜索POI:", coords);
+      // 百度地图API格式：lat,lng (纬度,经度)
+      url = `${baseUrl}?query=${encodeURIComponent(keywords)}&location=${coords.latitude},${coords.longitude}&radius=5000&output=json&ak=${baiduAK}&page_size=10&page_num=0`;
     } else {
-      // 否则使用城市名称搜索
+      // 否则使用城市区域搜索
       const searchArea = city || province || '北京';
-      queryParams.city = searchArea;
-      console.log("使用城市搜索POI:", searchArea);
+      console.log("使用百度地图城市搜索POI:", searchArea);
+      url = `${baseUrl}?query=${encodeURIComponent(keywords)}&region=${encodeURIComponent(searchArea)}&output=json&ak=${baiduAK}&page_size=10&page_num=0`;
     }
     
-    const { timestamp, nonce, signature, signedHeaders } = generateSignature(
-      appId, appKey, method, uri, queryParams
-    );
+    console.log("百度地图POI API 请求:", url);
     
-    const queryString = buildQueryString(queryParams);
-    const url = `https://api-ai.vivo.com.cn${uri}?${queryString}`;
-    
-    const headers = {
-      "Content-Type": "application/json",
-      "X-AI-GATEWAY-APP-ID": appId,
-      "X-AI-GATEWAY-TIMESTAMP": timestamp,
-      "X-AI-GATEWAY-NONCE": nonce,
-      "X-AI-GATEWAY-SIGNED-HEADERS": signedHeaders,
-      "X-AI-GATEWAY-SIGNATURE": signature
-    };
-    
-    console.log("VIVO POI API 请求:", url);
-    
-    const response = await fetch(url, { method, headers });
+    const response = await fetch(url);
     
     if (!response.ok) {
-      throw new Error(`VIVO POI API 错误: ${response.status}`);
+      throw new Error(`百度地图API请求失败: ${response.status}`);
     }
     
     const data = await response.json();
     
-    return (data && data.pois && data.pois.length > 0) ? data.pois : [];
+    console.log("百度地图POI API 响应:", data);
+    
+    if (data.status !== 0) {
+      throw new Error(`百度地图API错误: ${data.message}`);
+    }
+    
+    if (!data.results || data.results.length === 0) {
+      console.log('百度地图未找到相关POI结果');
+      return [];
+    }
+    
+    // 转换百度地图结果格式为项目统一格式
+    return data.results.map((poi: any) => ({
+      name: poi.name,
+      address: poi.address || '地址未提供',
+      phone: poi.telephone || '电话未提供',
+      city: poi.city || city || '未知',
+      district: poi.area || '',
+      latitude: poi.location?.lat || 0,
+      longitude: poi.location?.lng || 0,
+      uid: poi.uid || ''
+    }));
+    
   } catch (error) {
-    console.error("搜索POI失败:", error);
+    console.error('百度地图POI搜索错误:', error);
     return [];
   }
 }
 
-async function callVivoLLM(question: string, chatid: string) {
-  const appId = process.env.BLUEHEART_APP_ID;
-  const appKey = process.env.BLUEHEART_APP_KEY;
-  const requestId = uuidv4();
-  const params = { requestId };
-  const uri = '/vivogpt/completions/stream';
-  const method = 'POST';
+async function callZhipuAI(question: string, chatid: string) {
+  const apiKey = process.env.ZHIPU_API_KEY;
   
-  const { timestamp, nonce, signature, signedHeaders } = generateSignature(
-    appId, appKey, method, uri, params
-  );
-
-  const queryStr = buildQueryString(params);
-  const url = `https://api-ai.vivo.com.cn${uri}?${queryStr}`;
+  if (!apiKey) {
+    throw new Error('缺少智谱AI API密钥');
+  }
+  
+  const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
   const headers = {
     "Content-Type": "application/json",
-    "X-AI-GATEWAY-APP-ID": appId,
-    "X-AI-GATEWAY-TIMESTAMP": timestamp,
-    "X-AI-GATEWAY-NONCE": nonce,
-    "X-AI-GATEWAY-SIGNED-HEADERS": signedHeaders,
-    "X-AI-GATEWAY-SIGNATURE": signature
+    "Authorization": `Bearer ${apiKey}`
   };
+
+  // 构建消息数组，包含系统提示
+  const messages = [
+    {
+      role: "system",
+      content: "你是一个专业的满族文化导览助手，专门为用户介绍满族历史、文化、习俗和相关景点。请用友好、专业的语言回答用户的问题。"
+    },
+    {
+      role: "user", 
+      content: question
+    }
+  ];
 
   return await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      prompt: question,
-      model: "vivo-BlueLM-TB-Pro",
-      sessionId: chatid,
-      extra: {
-        temperature: 0.9,
-        top_p: 0.7
-      }
+      model: "glm-4-flash",
+      messages: messages,
+      stream: true,
+      temperature: 0.9,
+      top_p: 0.7,
+      max_tokens: 2048,
+      user_id: chatid
     })
   });
 }
 
-function formatPOIRecommendations(pois) {
-  return pois.map((poi, index) => 
+function formatPOIRecommendations(pois: any) {
+  return pois.map((poi: any, index: number) => 
     `${index + 1}. ${poi.name}\n   地址：${poi.address || '未提供'}\n   电话：${poi.phone || '未提供'}\n   所在区域：${poi.city}${poi.district}`
   ).join('\n\n');
 }
@@ -296,7 +268,7 @@ function generatePOIIntroduction(question: string, city: string, province?: stri
   return `根据您的需求，为您找到${area}的以下相关地点：`;
 }
 
-function processChunk(line, res) {
+function processChunk(line: any, res: any) {
   line = line.trim();
   if (!line) return;
 
@@ -316,16 +288,21 @@ function processChunk(line, res) {
 
       const data = JSON.parse(content);
 
-      if (data.message !== undefined) {
+      // 智谱AI响应格式处理
+      if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+        const answer = data.choices[0].delta.content;
+        res.write(`data: {"answer": ${JSON.stringify(answer)}}\n\n`);
+      } else if (data.message !== undefined) {
         res.write(`data: {"answer": ${JSON.stringify(data.message)}}\n\n`);
       } else if (data.reply !== undefined) {
         res.write(`data: {"answer": ${JSON.stringify(data.reply)}}\n\n`);
       } else {
-        res.write(`${line}\n\n`);
+        // 忽略不符合格式的数据，不发送给前端
+        console.log('忽略不符合格式的数据:', content);
       }
     } catch (e) {
-      console.error('解析数据出错:', e);
-      res.write(`${line}\n\n`);
+      console.error('解析数据出错:', e, '原始行:', line);
+      // 不发送解析错误的数据给前端
     }
     return;
   }
@@ -371,10 +348,10 @@ export default defineEventHandler(async (event) => {
       const keywords = extractPOIKeywords(body.question);
       console.log('POI 搜索关键词:', keywords);
       
-      // 使用坐标或城市进行POI搜索
-      const poiResults = await searchVivoPOI(
+      // 使用百度地图进行POI搜索
+      const poiResults = await searchBaiduPOI(
         keywords, 
-        searchCity, 
+        searchCity || '北京', 
         province, 
         (useLocationBasedSearch && userCoords) ? userCoords : undefined
       );
@@ -406,7 +383,7 @@ export default defineEventHandler(async (event) => {
   }
   
   try {
-    const response = await callVivoLLM(body.question, body.chatid);
+    const response = await callZhipuAI(body.question, body.chatid);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -444,7 +421,7 @@ export default defineEventHandler(async (event) => {
       console.error('流处理错误:', error);
       event.node.res.write(`event: error\ndata: ${JSON.stringify({
         error: '流处理错误',
-        message: error.message
+        message: error instanceof Error ? error.message : '未知错误'
       })}\n\n`);
     } finally {
       event.node.res.write('event: close\ndata: [DONE]\n\n');
@@ -461,7 +438,7 @@ export default defineEventHandler(async (event) => {
     if (event.node.res.headersSent) {
       event.node.res.write(`event: error\ndata: ${JSON.stringify({
         error: '处理请求失败',
-        message: error.message
+        message: error instanceof Error ? error.message : '未知错误'
       })}\n\n`);
       event.node.res.end();
       return;
@@ -469,10 +446,10 @@ export default defineEventHandler(async (event) => {
 
     return {
       error: '处理请求失败',
-      message: error.message,
-      details: error.response ? {
-        status: error.response.status,
-        data: error.response.data
+      message: error instanceof Error ? error.message : '未知错误',
+      details: (error as any)?.response ? {
+        status: (error as any).response.status,
+        data: (error as any).response.data
       } : undefined
     };
   }
